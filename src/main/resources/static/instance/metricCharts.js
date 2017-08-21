@@ -1,8 +1,8 @@
-define(['jquery', 'vue', 'text!metricChartsHtml', 'text!metricSelectorHtml', 'cpuChart', 'gcChart', 'memoryChart', 'tpsChart', 'chartJs', 'moment'],
-    function ($, Vue, segmentHtml, metricSelectorHtml, cpuChart, gcChart, memoryChart, tpsChart, Chart, moment) {
+define(['jquery', 'vue', 'text!metricSelectorHtml', 'cpuChart', 'gcChart', 'memoryChart', 'tpsChart', 'chartJs', 'moment'],
+    function ($, Vue, metricSelectorHtml, cpuChart, gcChart, memoryChart, tpsChart, Chart, moment) {
         window.chartColors = {
             blue: 'rgb(188, 214, 236)',
-            blueBorder: 'rg(185,203,218)',
+            blueBorder: 'rgb(185,203,218)',
             ogcDataColor: 'rgb(234, 155, 107)',
             ygcDataColor: 'rgb(118, 188, 236)',
             jvmUsedColor: 'rgb(222,232,245)',
@@ -10,135 +10,162 @@ define(['jquery', 'vue', 'text!metricChartsHtml', 'text!metricSelectorHtml', 'cp
             jvmMaxColor: 'rgb(253, 149, 77)',
             respTimeColor: 'rgb(188, 214, 236)',
             tps: 'rgb(95, 142, 173)',
-            tpsBorder: 'rgb(248,134,59)',
+            tpsBorder: 'rgb(248,134,59)'
         };
-        var startTime;
-        var dataChart = {
-            chartNumber: 0,
-            charts: [],
-        }
-
-
-        function generateLabels(time, count) {
-            var labels = [];
-            for (var i = 0; i < count; i++) {
-                labels.push(moment(time).add(i, "seconds").format("HH:mm:ss"));
-            }
-            return labels;
-        }
-
-        function generateRevertLabels(time, count) {
-            var labels = [];
-            for (var i = 0; i < count; i++) {
-                labels.unshift(moment(time).subtract(i + 1, "seconds").format("HH:mm:ss"));
-            }
-            return labels;
-        }
-
-        function loadMetricCharts() {
-            loadData("/testData/instance/mertic.json", function (data) {
-                $("#metricCanvasDiv").html(segmentHtml);
-                var tpsChart = buildChart("tps", data.timestamp, data);
-                dataChart.charts.push(tpsChart);
-                dataChart.chartNumber++;
-
-                var cpuChart = buildChart("cpu", data.timestamp, data);
-                dataChart.charts.push(cpuChart);
-                dataChart.chartNumber++;
-
-                var heapMemoryChart = buildChart("heapMemory", data.timestamp, data);
-                dataChart.charts.push(heapMemoryChart);
-                dataChart.chartNumber++;
-
-                var gcChart = buildChart("gc", data.timestamp, data);
-                dataChart.charts.push(gcChart);
-                dataChart.chartNumber++;
-                startTime = moment(data.timestamp).add(5,"minutes");
-            });
-
-            return this;
-        }
-
-        function loadData(url, handler, timestamp) {
-            $.getJSON(url, function (data) {
-                handler(data, timestamp);
-            });
-        }
-
-        function autoUpdateMetricCharts() {
-            var endTime = moment(startTime).add(1, "seconds").format("x");
-            loadData("/testData/instance/mertic.json", function (data, timestamp) {
-                for (var i = 0; i < dataChart.charts.length; i++) {
-                    dataChart.charts[i].updateChart(data, timestamp);
-                }
-            }, endTime);
-        }
 
         function drawMetricSelector() {
             $("#metricSelectorDiv").html(metricSelectorHtml);
             new Vue({
-                        el: "#metricSelectorDiv",
-                        data: dataChart,
-                        methods: {
-                            displayChart: function (chartName, event) {
-                                // timer task need to stop
-                                if ($(event.target).prop("checked")) {
-                                    loadData("/testData/instance/mertic-0.json", function (data, timestamp) {
-                                        var chart = buildChart(chartName, startTime, data, generateRevertLabels);
-                                        dataChart.charts.push(chart);
-                                    }, startTime);
-                                    dataChart.chartNumber++;
-                                } else {
-                                    var chartIndex = findChartObject(chartName);
-                                    dataChart.charts[chartIndex].chart.destroy();
-                                    for (var i = chartIndex; i < dataChart.charts.length - 1; i++) {
-                                        //   get canvas object
-                                        var canvasObject = document.getElementById("canvas-" + i).getContext("2d");
-                                        // redraw
-                                        var swapChartObject = dataChart.charts[i + 1];
-                                        swapChartObject.chart.destroy();
-                                        var config = getChartConfig(swapChartObject.type, swapChartObject.chart);
-                                        swapChartObject.chart = new Chart(canvasObject, config);
-                                    }
-
-                                    dataChart.charts.splice(chartIndex, 1);
-                                    dataChart.chartNumber--;
-                                }
-                            },
-                            needDisabled: function (inputName) {
-                                return !$("#" + inputName).prop("checked");
+                el: "#metricSelectorDiv",
+                data: {},
+                methods: {
+                    displayChart: function (chartName, event) {
+                        if ($(event.target).prop("checked")) {
+                            metricChartsController.queryParam.metricNames.push(chartName);
+                            metricChartsController.charts.push(initChart(chartName));
+                            if (!$("#autoUpdate").prop('checked')) {
+                                updateMetricCharts(metricChartsController.currentXAxesOriginPoint);
+                            } else {
+                                metricChartsController.queryParam.startTime = moment(metricChartsController.queryParam.currentXAxesOriginPoint).format("YYYYMMDDHHmmss");
+                            }
+                        } else {
+                            $("#" + chartName + "-div").remove();
+                            var index = findChartObject(chartName);
+                            if (index != -1) {
+                                metricChartsController.charts[index].chartOperator.destroy();
+                                metricChartsController.charts.splice(index, 1);
+                                metricChartsController.removeQueryMetric(chartName);
                             }
                         }
-                    });
+                    }
+                }
+            });
             return this;
         }
 
-        function buildChart(chartName, timestamp, data, labelHandler) {
-            if (labelHandler == undefined){
-                labelHandler = generateLabels;
-            }
-            var ctx = document.getElementById("canvas-" + dataChart.charts.length).getContext("2d");
-            var chartHandlerConfig = buildChartHandlerConfig(chartName);
-            var canvasBuilder = chartHandlerConfig.canvasBuilder;
-            var dataFetcher = chartHandlerConfig.dataFetcher;
-            var config = canvasBuilder.createChartConfig(labelHandler(timestamp, 300), dataFetcher(data, chartName));
-            return {
-                name: chartName,
-                type: config.type,
-                chart: new Chart(ctx, config),
-                updateChart: function (data, timestamplabel) {
-                    canvasBuilder.updateChart(this.chart, moment(timestamplabel).format("HH:mm:ss"), dataFetcher(data, chartName));
-                },
-                redrawChart: function (canvasObject, data, timestamp) {
-                    this.chart.destroy();
-                    this.chart = null;
-                    var config = chartHandlerConfig.canvasBuilder.createChartConfig(generateLabels(timestamp, 300), chartHandlerConfig.dataFetcher(data, this.name));
-                    this.chart = new Chart(canvasObject, config);
+        function findChartObject(chartName) {
+            for (var i = 0; i < metricChartsController.charts.length; i++) {
+                if (metricChartsController.charts[i].chartName == chartName) {
+                    return i;
                 }
-            };
+            }
+
+            return -1;
         }
 
-        function buildChartHandlerConfig(chartName) {
+        var metricChartsController = {
+            charts: [],
+            queryParam: {
+                instanceId: undefined,
+                startTime: undefined,
+                endTime: undefined,
+                metricNames: ["tps", "cpu", "respTime", "heapMemory", "gc"]
+            },
+            autoUpdateParam: {
+                nextQueryEndTime: undefined
+            },
+            currentXAxesOriginPoint: undefined,
+            loadData: function (endTime) {
+                console.log("load Date: " + endTime);
+                var that = metricChartsController;
+                that.queryParam.endTime = moment(parseInt(endTime)).format("YYYYMMDDHHmmss");
+                console.log("query end time : " + that.queryParam.endTime);
+                $.getJSON("/metricInfoWithTimeRange", this.queryParam, function (data) {
+                    var nextQueryStartTime = Number.MAX_VALUE;
+                    var maxXAxesTimestamp = 0;
+                    for (var i = 0; i < that.charts.length; i++) {
+                        var dataFetcher = that.charts[i].dataFetcher;
+                        that.charts[i].chartOperator.fillData(dataFetcher(data, that.charts[i].chartName));
+                        var chartLastDate = that.charts[i].chartOperator.previousTime.timestamp;
+                        if (chartLastDate < nextQueryStartTime) {
+                            nextQueryStartTime = chartLastDate;
+                        }
+
+                        if (chartLastDate > maxXAxesTimestamp) {
+                            maxXAxesTimestamp = chartLastDate;
+                        }
+                    }
+
+                    // align x-axes,
+                    for (var i = 0; i < that.charts.length; i++) {
+                        that.charts[i].chartOperator.alignXAxes(maxXAxesTimestamp);
+                        that.currentXAxesOriginPoint = that.charts[i].chartOperator.getChartStartTime();
+                    }
+
+                    that.queryParam.startTime = moment(nextQueryStartTime).format("YYYYMMDDHHmmss");
+                    console.log("next query start time: " + that.queryParam.startTime + " next query end time: " + that.queryParam.endTime);
+                });
+            },
+            removeQueryMetric: function (metricName) {
+                for (var i = 0; i < this.queryParam.metricNames.length; i++) {
+                    if (this.queryParam.metricNames[i] == metricName) {
+                        this.queryParam.metricNames.splice(i, 1);
+                        break;
+                    }
+                }
+            },
+            initParams: function (instanceId, startTime) {
+                this.queryParam.instanceId = instanceId;
+                this.queryParam.startTime = startTime;
+            },
+            redrawChart: function (timestamp) {
+                for (var i = 0; i < this.charts.length; i++) {
+                    this.charts[i].chartOperator.redrawChart(timestamp);
+                }
+            }
+        }
+
+        function initPageCharts(instanceId, startTime) {
+            metricChartsController.initParams(instanceId, startTime);
+
+            var tpsChart = initChart("tps", startTime);
+            metricChartsController.charts.push(tpsChart);
+
+            var cpuChart = initChart("cpu", startTime);
+            metricChartsController.charts.push(cpuChart);
+
+            var heapMemoryChart = initChart("heapMemory", startTime);
+            metricChartsController.charts.push(heapMemoryChart);
+
+            var gcChart = initChart("gc", startTime);
+            metricChartsController.charts.push(gcChart);
+
+            metricChartsController.loadData(moment(startTime, "YYYYMMDDHHmmss").add(5, "minutes").format("x"));
+        }
+
+        function updateMetricCharts(startTime) {
+            metricChartsController.redrawChart(startTime);
+            metricChartsController.loadData(moment(startTime).add(5, "minutes").format("x"));
+        }
+
+        function redrawChart(startTime) {
+            metricChartsController.redrawChart(startTime);
+        }
+
+        function autoUpdateMetricCharts(endTime) {
+            if (metricChartsController.autoUpdateParam.nextQueryEndTime == undefined) {
+                metricChartsController.autoUpdateParam.nextQueryEndTime = parseInt(endTime);
+            }
+
+            var nextQueryTime = metricChartsController.autoUpdateParam.nextQueryEndTime;
+            if (parseInt(endTime) - nextQueryTime > 3000) {
+                metricChartsController.loadData(nextQueryTime);
+                metricChartsController.autoUpdateParam.nextQueryEndTime += 3000;
+            }
+        }
+
+        function initChart(chartName, xAxesStartTime) {
+            $("#metricCanvasDiv").append("<div class='row' style='margin-top: 10px;margin-bottom: 20px; ' id='" + chartName + "-div'><div class='col-lg-12 col-sm-12 ' style=' height:135px;'><canvas id='" + chartName + "' style='display: block; '></canvas></div></div>\n");
+            var chartContext = document.getElementById(chartName).getContext("2d");
+            var chartObject = getChartHandler(chartName);
+            chartObject.chartOperator = chartObject.canvasBuilder.createChart(chartContext, xAxesStartTime);
+            chartObject.dataFetcher = chartObject.dataFetcher;
+            chartObject.chartName = chartName;
+            return chartObject;
+        }
+
+
+        function getChartHandler(chartName) {
             var chartHandlerConfig;
             switch (chartName) {
                 case "tps":
@@ -156,7 +183,7 @@ define(['jquery', 'vue', 'text!metricChartsHtml', 'text!metricSelectorHtml', 'cp
                     chartHandlerConfig = {
                         canvasBuilder: gcChart,
                         dataFetcher: function (data) {
-                            return data.gc;
+                            return data.gc
                         }
                     }
                     break;
@@ -164,7 +191,7 @@ define(['jquery', 'vue', 'text!metricChartsHtml', 'text!metricSelectorHtml', 'cp
                     chartHandlerConfig = {
                         canvasBuilder: cpuChart,
                         dataFetcher: function (data) {
-                            return data.cpu;
+                            return data.cpu
                         }
                     }
                     break;
@@ -172,45 +199,19 @@ define(['jquery', 'vue', 'text!metricChartsHtml', 'text!metricSelectorHtml', 'cp
                     chartHandlerConfig = {
                         canvasBuilder: memoryChart,
                         dataFetcher: function (data, chartName) {
-                            return data[chartName];
+                            return data[chartName]
                         }
                     }
             }
             return chartHandlerConfig;
         }
 
-        function getChartConfig(type, chartObject) {
-            return {
-                type: type,
-                data: chartObject.data,
-                options: chartObject.options
-            }
-        }
-
-        function findChartObject(chartName) {
-            for (var i = 0; i < dataChart.charts.length; i++) {
-                if (dataChart.charts[i].name === chartName) {
-                    return i;
-                }
-            }
-            return -1;
-        }
-
-        function updateMetricCharts(timestamp) {
-            console.log(timestamp);
-            loadData("/testData/instance/mertic.json", function (data, timestamp) {
-                for (var i = 0; i < dataChart.charts.length; i++) {
-                    var canvasObject = document.getElementById("canvas-" + i).getContext("2d");
-                    dataChart.charts[i].redrawChart(canvasObject, data, timestamp);
-                }
-            }, timestamp);
-        }
-
         return {
-            loadMetricCharts: loadMetricCharts,
-            autoUpdateMetricCharts: autoUpdateMetricCharts,
             drawMetricSelector: drawMetricSelector,
-            updateMetricCharts: updateMetricCharts
+            initPageCharts: initPageCharts,
+            updateMetricCharts: updateMetricCharts,
+            autoUpdateMetricCharts: autoUpdateMetricCharts,
+            redrawChart: redrawChart
         }
     }
 );

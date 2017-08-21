@@ -30,7 +30,6 @@ requirejs.config({
         "machineInfo": "/instance/machineInfo",
         "machineInfoHtml": "/instance/machineInfo.html",
         "metricCharts": "/instance/metricCharts",
-        "metricChartsHtml": "/instance/metricCharts.html",
         "metricSelectorHtml": "/instance/metricSelector.html",
         "applications": "/health/applications",
         "applicationsHtml": "/health/applications.html",
@@ -40,6 +39,8 @@ requirejs.config({
         "healthTimeAxis": "/health/timeaxis",
         "instanceTimeAxisHtml": "/health/timeaxis.html",
         "responseTimeConditionHtml": "/health/responseTimeCondition.html",
-        "responseTimeCondition": "/health/responseTimeCondition"
+        "responseTimeCondition": "/health/responseTimeCondition",
+        "metricChartUtil": "/instance/metricChartUtil.js",
+        "metric-chart": "/public/js/metric-chart"
     }
 });
